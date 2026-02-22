@@ -6,20 +6,43 @@ const pool = require("../config/db");
 const JWT_SECRET = process.env.JWT_SECRET;
 
 /* =========================
+   HELPER: Normalize phone
+========================= */
+function normalizePhone(phone) {
+  if (!phone) return null;
+
+  const cleaned = String(phone).replace(/\s+/g, "");
+
+  if (/^\+998\d{9}$/.test(cleaned)) return cleaned;
+  if (/^998\d{9}$/.test(cleaned)) return `+${cleaned}`;
+
+  return null;
+}
+
+/* =========================
    SIGN UP
 ========================= */
-
 router.post("/signup", async (req, res) => {
   try {
-    const { phone, password, role } = req.body;
+    const { phone, password } = req.body;
 
     if (!phone || !password) {
       return res.status(400).json({ message: "Phone and password required" });
     }
 
+    if (password.length < 8) {
+      return res.status(400).json({ message: "Password must be at least 8 characters" });
+    }
+
+    const phoneNorm = normalizePhone(phone);
+
+    if (!phoneNorm) {
+      return res.status(400).json({ message: "Invalid phone format" });
+    }
+
     const existing = await pool.query(
       "SELECT id FROM users WHERE phone = $1",
-      [phone]
+      [phoneNorm]
     );
 
     if (existing.rows.length > 0) {
@@ -30,9 +53,9 @@ router.post("/signup", async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO users (phone, password, role)
-       VALUES ($1, $2, $3)
+       VALUES ($1, $2, 'user')
        RETURNING id, phone, role`,
-      [phone, hashedPassword, role || "user"]
+      [phoneNorm, hashedPassword]
     );
 
     const user = result.rows[0];
@@ -46,22 +69,31 @@ router.post("/signup", async (req, res) => {
     res.status(201).json({ user, token });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("SIGNUP ERROR:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 /* =========================
    SIGN IN
 ========================= */
-
 router.post("/login", async (req, res) => {
   try {
     const { phone, password } = req.body;
 
+    if (!phone || !password) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const phoneNorm = normalizePhone(phone);
+
+    if (!phoneNorm) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
     const result = await pool.query(
-      "SELECT * FROM users WHERE phone = $1",
-      [phone]
+      "SELECT id, phone, password, role FROM users WHERE phone = $1",
+      [phoneNorm]
     );
 
     if (result.rows.length === 0) {
@@ -69,6 +101,10 @@ router.post("/login", async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    if (!user.password) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
 
@@ -86,15 +122,24 @@ router.post("/login", async (req, res) => {
       user: {
         id: user.id,
         phone: user.phone,
-        role: user.role
+        role: user.role,
       },
       token
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("LOGIN ERROR:", err);
+    res.status(500).json({ error: err.message });
   }
+});
+
+/* =========================
+   FORGOT PASSWORD
+========================= */
+router.post("/forgot-password", async (req, res) => {
+  return res.json({
+    message: "If you forgot your password, contact admin: @CampusEats"
+  });
 });
 
 module.exports = router;
