@@ -11,6 +11,10 @@ function normalizePhone(phone) {
   const cleaned = String(phone).replace(/\s+/g, "");
   if (/^\+998\d{9}$/.test(cleaned)) return cleaned;
   if (/^998\d{9}$/.test(cleaned)) return `+${cleaned}`;
+
+  // Allow alphanumeric usernames for restaurant partners / admins
+  if (cleaned.length >= 4 && !/^\d+$/.test(cleaned)) return cleaned;
+
   return null;
 }
 
