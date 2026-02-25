@@ -96,7 +96,7 @@ router.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, phone, password, role, full_name, balance FROM users WHERE phone = $1",
+      "SELECT id, phone, password, role, full_name, balance, is_student_verified FROM users WHERE phone = $1",
       [phoneNorm]
     );
 
@@ -128,7 +128,8 @@ router.post("/login", async (req, res) => {
         phone: user.phone,
         role: user.role,
         fullName: user.full_name,
-        balance: user.balance
+        balance: user.balance,
+        is_student_verified: user.is_student_verified
       },
       token
     });
@@ -144,7 +145,7 @@ GET USER INFO
 router.get("/me", require("../middleware/auth.middleware"), async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT id, phone, role, full_name, balance FROM users WHERE id = $1",
+      "SELECT id, phone, role, full_name, balance, is_student_verified FROM users WHERE id = $1",
       [req.user.id]
     );
 
