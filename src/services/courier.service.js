@@ -512,6 +512,31 @@ class CourierService {
     }
 
     // ──────────────────────────────────────────────
+    // BOT SESSION MANAGEMENT (for stateless Vercel)
+    // ──────────────────────────────────────────────
+
+    async getBotSession(chatId) {
+        const res = await pool.query('SELECT * FROM bot_sessions WHERE chat_id = $1', [chatId]);
+        return res.rows[0] || { chat_id: chatId, step: null, data: {} };
+    }
+
+    async upsertBotSession(chatId, step, data = {}) {
+        await pool.query(
+            `INSERT INTO bot_sessions (chat_id, step, data, updated_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (chat_id) DO UPDATE 
+             SET step = EXCLUDED.step, 
+                 data = EXCLUDED.data, 
+                 updated_at = NOW()`,
+            [chatId, step, JSON.stringify(data)]
+        );
+    }
+
+    async clearBotSession(chatId) {
+        await pool.query('DELETE FROM bot_sessions WHERE chat_id = $1', [chatId]);
+    }
+
+    // ──────────────────────────────────────────────
     // INTERNAL HELPERS
     // ──────────────────────────────────────────────
 

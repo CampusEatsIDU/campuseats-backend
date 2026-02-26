@@ -48,19 +48,20 @@ if (token && token.includes(':')) {
 }
 
 // ──────────────────────────────────────────────
-// SESSION MANAGEMENT (server-side state)
+// SESSION MANAGEMENT (stateless via DB)
 // ──────────────────────────────────────────────
-const sessions = new Map(); // chatId -> { step, phone, ... }
 
-function getSession(chatId) {
-    if (!sessions.has(chatId)) {
-        sessions.set(chatId, { step: null, phone: null, data: {} });
-    }
-    return sessions.get(chatId);
+async function getSession(chatId) {
+    const s = await courierService.getBotSession(chatId);
+    return s || { chat_id: chatId, step: null, data: {} };
 }
 
-function clearSession(chatId) {
-    sessions.set(chatId, { step: null, phone: null, data: {} });
+async function setSessionStep(chatId, step, data = {}) {
+    await courierService.upsertBotSession(chatId, step, data);
+}
+
+async function clearSession(chatId) {
+    await courierService.clearBotSession(chatId);
 }
 
 // ──────────────────────────────────────────────
@@ -190,14 +191,13 @@ bot.onText(/\/start/, async (msg) => {
             if (courier.status === 'blocked') {
                 return bot.sendMessage(chatId, '🚫 Your account has been *blocked*.\nContact SuperAdmin for assistance.', { parse_mode: 'Markdown' });
             }
-            clearSession(chatId);
+            await clearSession(chatId);
             return sendMainMenu(chatId);
         }
 
         // Not registered — start login
-        clearSession(chatId);
-        const s = getSession(chatId);
-        s.step = 'awaiting_phone';
+        await clearSession(chatId);
+        await setSessionStep(chatId, 'awaiting_phone');
 
         bot.sendMessage(chatId, [
             `👋 *Welcome to CampusEats Courier Bot!*`,
@@ -220,7 +220,7 @@ bot.on('message', async (msg) => {
 
     try {
         const courier = await courierService.getCourierByTelegramId(chatId);
-        const s = getSession(chatId);
+        const s = await getSession(chatId);
 
         if (courier) {
             // Already logged in — handle submit cash amount input
@@ -234,7 +234,7 @@ bot.on('message', async (msg) => {
                 }
 
                 const res = await courierService.submitCash(courier.id, amount);
-                s.step = null;
+                await clearSession(chatId);
 
                 if (res.success) {
                     await bot.sendMessage(chatId, [
@@ -255,24 +255,30 @@ bot.on('message', async (msg) => {
 
         // Login flow
         if (s.step === 'awaiting_phone') {
-            s.phone = msg.text.trim();
-            s.step = 'awaiting_password';
+            const phone = msg.text.trim();
+            await setSessionStep(chatId, 'awaiting_password', { phone });
             return bot.sendMessage(chatId, '🔑 Now enter your *password*:', { parse_mode: 'Markdown' });
         }
 
         if (s.step === 'awaiting_password') {
             const pw = msg.text.trim();
+            const phone = s.data?.phone;
+
             // Delete the password message for security
             bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
-            const res = await courierService.login(s.phone, pw, chatId);
+            if (!phone) {
+                await setSessionStep(chatId, 'awaiting_phone');
+                return bot.sendMessage(chatId, '❌ Error: Phone not found. Please enter phone again:');
+            }
+
+            const res = await courierService.login(phone, pw, chatId);
             if (res.success) {
-                clearSession(chatId);
+                await clearSession(chatId);
                 await bot.sendMessage(chatId, `✅ *Login successful!*\nWelcome, ${res.courier.phone}!`, { parse_mode: 'Markdown' });
                 return sendMainMenu(chatId);
             } else {
-                s.step = 'awaiting_phone';
-                s.phone = null;
+                await setSessionStep(chatId, 'awaiting_phone');
                 return bot.sendMessage(chatId, `❌ *Login failed:* ${res.message}\n\nPlease enter your phone number again:`, { parse_mode: 'Markdown' });
             }
         }
@@ -427,7 +433,7 @@ bot.on('callback_query', async (query) => {
                     reply_markup: { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'main_menu' }]] }
                 }).catch(() => { });
             }
-            getSession(chatId).step = 'awaiting_amount';
+            await setSessionStep(chatId, 'awaiting_amount');
             return bot.editMessageText(
                 `🏦 *Submit Cash to Admin*\n\nCurrent balance: *${Number(courier.cash_on_hand).toLocaleString('uz-UZ')} UZS*\n\nEnter the amount to submit (type number):`,
                 { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
