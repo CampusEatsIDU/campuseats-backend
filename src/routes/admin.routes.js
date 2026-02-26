@@ -843,4 +843,307 @@ router.get("/notifications", async (req, res) => {
    }
 });
 
+// ═══════════════════════════════════════════
+// COURIER MANAGEMENT (SuperAdmin)
+// ═══════════════════════════════════════════
+const courierService = require('../services/courier.service');
+
+// GET /api/admin/couriers — list all couriers with stats
+router.get('/couriers', async (req, res) => {
+   try {
+      const { page = 1, limit = 50, search = '', status = '' } = req.query;
+      const result = await courierService.listCouriers({
+         page: parseInt(page),
+         limit: parseInt(limit),
+         search,
+         status
+      });
+      res.json(result);
+   } catch (err) {
+      console.error('List couriers error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/couriers/create — create a new courier
+router.post('/couriers/create', async (req, res) => {
+   try {
+      const { phone, password, full_name } = req.body;
+      if (!phone || !password) {
+         return res.status(400).json({ message: 'Phone and password are required' });
+      }
+
+      // Check if phone already exists
+      const exists = await pool.query('SELECT id FROM couriers WHERE phone = $1', [phone]);
+      if (exists.rows.length > 0) {
+         return res.status(400).json({ message: 'Phone already registered as courier' });
+      }
+
+      const courier = await courierService.createCourier(phone, password, full_name);
+
+      await AuditService.log(req.user.id, 'COURIER_CREATED', {
+         courier_id: courier.id,
+         phone,
+         full_name
+      });
+
+      res.status(201).json({
+         message: 'Courier created successfully',
+         courier: {
+            id: courier.id,
+            phone: courier.phone,
+            full_name: courier.full_name,
+            status: courier.status,
+            rating: courier.rating,
+            created_at: courier.created_at,
+            temporary_password: password  // shown once
+         }
+      });
+   } catch (err) {
+      console.error('Create courier error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// GET /api/admin/couriers/:id — courier detail
+router.get('/couriers/:id', async (req, res) => {
+   try {
+      const detail = await courierService.getCourierDetail(req.params.id);
+      if (!detail) return res.status(404).json({ message: 'Courier not found' });
+      res.json(detail);
+   } catch (err) {
+      console.error('Courier detail error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/couriers/:id/block
+router.post('/couriers/:id/block', async (req, res) => {
+   try {
+      const courier = await courierService.blockCourier(req.params.id);
+      if (!courier) return res.status(404).json({ message: 'Courier not found' });
+
+      await AuditService.log(req.user.id, 'COURIER_BLOCKED', { courier_id: req.params.id });
+
+      // Notify the courier via bot
+      try {
+         const { bot } = require('../bot/courierBot');
+         const courierData = await pool.query('SELECT telegram_id FROM couriers WHERE id = $1', [req.params.id]);
+         const tgId = courierData.rows[0]?.telegram_id;
+         if (tgId) {
+            bot.sendMessage(tgId, '🚫 Your courier account has been *blocked* by the administrator.\nContact SuperAdmin for more information.', { parse_mode: 'Markdown' }).catch(() => { });
+         }
+      } catch { }
+
+      res.json({ message: 'Courier blocked', courier });
+   } catch (err) {
+      console.error('Block courier error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/couriers/:id/unblock
+router.post('/couriers/:id/unblock', async (req, res) => {
+   try {
+      const courier = await courierService.unblockCourier(req.params.id);
+      if (!courier) return res.status(404).json({ message: 'Courier not found' });
+
+      await AuditService.log(req.user.id, 'COURIER_UNBLOCKED', { courier_id: req.params.id });
+
+      // Notify the courier
+      try {
+         const { bot } = require('../bot/courierBot');
+         const courierData = await pool.query('SELECT telegram_id FROM couriers WHERE id = $1', [req.params.id]);
+         const tgId = courierData.rows[0]?.telegram_id;
+         if (tgId) {
+            bot.sendMessage(tgId, '✅ Your courier account has been *unblocked*.\nYou can now go online and receive orders.', { parse_mode: 'Markdown' }).catch(() => { });
+         }
+      } catch { }
+
+      res.json({ message: 'Courier unblocked', courier });
+   } catch (err) {
+      console.error('Unblock courier error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/couriers/:id/reset-password
+router.post('/couriers/:id/reset-password', async (req, res) => {
+   try {
+      const newPassword = Math.random().toString(36).slice(-8);
+      const courier = await courierService.resetCourierPassword(req.params.id, newPassword);
+      if (!courier) return res.status(404).json({ message: 'Courier not found' });
+
+      await AuditService.log(req.user.id, 'COURIER_PASSWORD_RESET', { courier_id: req.params.id });
+
+      res.json({
+         message: 'Password reset successfully. SAVE THE PASSWORD — SHOWN ONCE ONLY.',
+         courier: {
+            id: courier.id,
+            phone: courier.phone,
+            temporary_password: newPassword
+         }
+      });
+   } catch (err) {
+      console.error('Reset courier password error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// GET /api/admin/couriers/incidents — all open SOS incidents
+router.get('/courier-incidents', async (req, res) => {
+   try {
+      const { status = 'open', page = 1, limit = 50 } = req.query;
+      const offset = (page - 1) * limit;
+
+      const result = await pool.query(`
+         SELECT ci.*, 
+                c.phone as courier_phone, c.full_name as courier_name,
+                o.delivery_address, o.total_price
+         FROM courier_incidents ci
+         LEFT JOIN couriers c ON ci.courier_id = c.id
+         LEFT JOIN orders o ON ci.order_id = o.id
+         WHERE ci.status = $1
+         ORDER BY ci.created_at DESC
+         LIMIT $2 OFFSET $3
+      `, [status, limit, offset]);
+
+      const countResult = await pool.query(
+         'SELECT COUNT(*) FROM courier_incidents WHERE status = $1',
+         [status]
+      );
+
+      res.json({
+         total: parseInt(countResult.rows[0].count),
+         incidents: result.rows
+      });
+   } catch (err) {
+      console.error('Get incidents error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/courier-incidents/:id/resolve
+router.post('/courier-incidents/:id/resolve', async (req, res) => {
+   try {
+      const result = await pool.query(
+         "UPDATE courier_incidents SET status = 'resolved' WHERE id = $1 RETURNING *",
+         [req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ message: 'Incident not found' });
+
+      await AuditService.log(req.user.id, 'INCIDENT_RESOLVED', { incident_id: req.params.id });
+      res.json({ message: 'Incident resolved', incident: result.rows[0] });
+   } catch (err) {
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// GET /api/admin/courier-sla-breaches — orders with SLA breaches
+router.get('/courier-sla-breaches', async (req, res) => {
+   try {
+      const { page = 1, limit = 50 } = req.query;
+      const offset = (page - 1) * limit;
+
+      const result = await pool.query(`
+         SELECT o.id, o.delivery_status, o.sla_delivery_deadline, o.created_at,
+                c.phone as courier_phone, c.full_name as courier_name, c.rating as courier_rating
+         FROM orders o
+         LEFT JOIN couriers c ON o.courier_id = c.id
+         WHERE o.sla_status = 'breached'
+         ORDER BY o.sla_delivery_deadline DESC
+         LIMIT $1 OFFSET $2
+      `, [limit, offset]);
+
+      const countResult = await pool.query("SELECT COUNT(*) FROM orders WHERE sla_status = 'breached'");
+
+      res.json({
+         total: parseInt(countResult.rows[0].count),
+         breaches: result.rows
+      });
+   } catch (err) {
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// GET /api/admin/cash-submissions — pending cash submissions from couriers
+router.get('/cash-submissions', async (req, res) => {
+   try {
+      const { status = 'pending' } = req.query;
+
+      const result = await pool.query(`
+         SELECT cm.*, c.phone as courier_phone, c.full_name as courier_name, c.cash_on_hand
+         FROM cash_movements cm
+         LEFT JOIN couriers c ON cm.courier_id = c.id
+         WHERE cm.type = 'cash_submitted' AND cm.status = $1
+         ORDER BY cm.created_at DESC
+      `, [status]);
+
+      res.json({ submissions: result.rows });
+   } catch (err) {
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// POST /api/admin/cash-submissions/:id/confirm
+router.post('/cash-submissions/:id/confirm', async (req, res) => {
+   try {
+      const movement = await courierService.confirmCashSubmission(req.params.id);
+      if (!movement) return res.status(404).json({ message: 'Cash movement not found or already processed' });
+
+      await AuditService.log(req.user.id, 'CASH_SUBMISSION_CONFIRMED', {
+         movement_id: req.params.id,
+         amount: movement.amount,
+         courier_id: movement.courier_id
+      });
+
+      // Notify courier
+      try {
+         const { bot } = require('../bot/courierBot');
+         const courierData = await pool.query('SELECT telegram_id, full_name, phone FROM couriers WHERE id = $1', [movement.courier_id]);
+         const tgId = courierData.rows[0]?.telegram_id;
+         if (tgId) {
+            bot.sendMessage(
+               tgId,
+               `✅ *Cash Submission Confirmed!*\n\nAmount: *${Number(movement.amount).toLocaleString('uz-UZ')} UZS*\nThe administrator has confirmed your cash submission.`,
+               { parse_mode: 'Markdown' }
+            ).catch(() => { });
+         }
+      } catch { }
+
+      res.json({ message: 'Cash submission confirmed', movement });
+   } catch (err) {
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// GET /api/admin/courier-dashboard — consolidated courier stats
+router.get('/courier-dashboard', async (req, res) => {
+   try {
+      const totalCouriers = await pool.query('SELECT COUNT(*) FROM couriers');
+      const onlineCouriers = await pool.query("SELECT COUNT(*) FROM couriers WHERE is_online = true AND status = 'active'");
+      const activeDeliveries = await pool.query("SELECT COUNT(*) FROM orders WHERE delivery_status NOT IN ('delivered','cancelled') AND courier_id IS NOT NULL");
+      const slaBreaches = await pool.query("SELECT COUNT(*) FROM orders WHERE sla_status = 'breached'");
+      const openIncidents = await pool.query("SELECT COUNT(*) FROM courier_incidents WHERE status = 'open'");
+      const pendingCash = await pool.query("SELECT COALESCE(SUM(amount), 0) as total FROM cash_movements WHERE type = 'cash_submitted' AND status = 'pending'");
+      const totalCashOnHand = await pool.query("SELECT COALESCE(SUM(cash_on_hand), 0) as total FROM couriers");
+      const avgRating = await pool.query("SELECT ROUND(AVG(rating)::numeric, 2) as avg FROM couriers WHERE completed_orders > 0");
+
+      res.json({
+         totalCouriers: parseInt(totalCouriers.rows[0].count),
+         onlineCouriers: parseInt(onlineCouriers.rows[0].count),
+         activeDeliveries: parseInt(activeDeliveries.rows[0].count),
+         slaBreaches: parseInt(slaBreaches.rows[0].count),
+         openIncidents: parseInt(openIncidents.rows[0].count),
+         pendingCashSubmissions: parseFloat(pendingCash.rows[0].total),
+         totalCashOnHand: parseFloat(totalCashOnHand.rows[0].total),
+         avgCourierRating: parseFloat(avgRating.rows[0].avg) || 5.0
+      });
+   } catch (err) {
+      console.error('Courier dashboard error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
 module.exports = router;
+

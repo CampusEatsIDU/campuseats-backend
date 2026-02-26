@@ -42,13 +42,26 @@ const createOrder = async (data) => {
 const updateStatus = async (id, status) => {
   const result = await pool.query(
     `UPDATE orders
-     SET status = $1
+     SET status = $1, 
+         payment_method = COALESCE(payment_method, 'cash')
      WHERE id = $2
      RETURNING *`,
     [status, id]
   );
 
-  return result.rows[0];
+  const order = result.rows[0];
+
+  if (order && status === 'ready_for_pickup') {
+    // Proactively broadcast to couriers
+    try {
+      const { broadcastOrderToCouriers } = require("../bot/courierBot");
+      broadcastOrderToCouriers(order);
+    } catch (e) {
+      console.error("Failed to broadcast order:", e);
+    }
+  }
+
+  return order;
 };
 
 module.exports = {

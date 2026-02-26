@@ -31,6 +31,8 @@ app.use("/api/verification", require("./routes/verification.routes"));
 app.use("/api/telegram", require("./routes/telegram.routes"));
 app.use("/api/admin", require("./routes/admin.routes"));
 app.use("/api/restaurant", require("./routes/restaurant.routes"));
+app.use("/api/courier", require("./routes/courier.routes"));
+app.use("/api/courier-bot", require("./routes/courierBot.routes"));
 
 /* =========================
    HEALTH CHECK

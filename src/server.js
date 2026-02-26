@@ -11,6 +11,16 @@ pool.connect()
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
+
+      // Initialize Courier Bot system
+      try {
+        require("./bot/courierBot");
+        const { startSLAWorker } = require("./bot/slaWorker");
+        startSLAWorker();
+        console.log("Courier Bot and SLA Worker initialized");
+      } catch (e) {
+        console.error("Failed to start Courier Bot components:", e);
+      }
     });
   })
   .catch((err) => {
