@@ -12,21 +12,25 @@ router.post("/", authMiddleware, async (req, res) => {
 
     const {
       total_price,
+      restaurant_id,
       delivery_address,
       latitude,
-      longitude
+      longitude,
+      items
     } = req.body;
 
-    if (!total_price || !delivery_address) {
-      return res.status(400).json({ message: "Missing required fields" });
+    if (!total_price || !restaurant_id) {
+      return res.status(400).json({ message: "Missing required fields: total_price or restaurant_id" });
     }
 
     const order = await orderService.createOrder({
       user_id,
       total_price,
+      restaurant_id,
       delivery_address,
       latitude,
-      longitude
+      longitude,
+      items
     });
 
     res.status(201).json(order);
