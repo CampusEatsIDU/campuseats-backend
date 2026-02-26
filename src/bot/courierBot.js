@@ -16,21 +16,18 @@ const CASH_LIMIT = parseInt(process.env.COURIER_CASH_LIMIT || '500000');
 const COURIER_EARNINGS = parseInt(process.env.COURIER_EARNINGS_PER_ORDER || '15000');
 
 // Detect environment
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const ALLOW_POLLING = process.env.ALLOW_POLLING === 'true';
 
 let bot;
 if (token && token.includes(':')) {
-    // Determine if we should use polling (only locally and ONLY if no webhook is set)
-    const shouldPoll = !WEBHOOK_URL && !IS_PRODUCTION;
-
-    if (shouldPoll) {
+    if (ALLOW_POLLING) {
         bot = new TelegramBot(token, { polling: true });
         console.log('[CourierBot] Started in POLLING mode (Local dev)');
     } else {
-        // Default for Vercel/Production: strictly NO POLLING to avoid conflicts
+        // Safe default: No polling. Webhook is handled by Express app.
         bot = new TelegramBot(token, { webHook: false, polling: false });
-        console.log('[CourierBot] Started in WEBHOOK (stateless) mode');
+        console.log('[CourierBot] Initialized for WEBHOOK mode (Stateless)');
     }
 } else {
     console.warn('[CourierBot] No valid COURIER_BOT_TOKEN. Bot is disabled.');
@@ -180,11 +177,10 @@ function formatOrderCard(order, courierEarnings = COURIER_EARNINGS) {
 }
 
 // ──────────────────────────────────────────────
-// /start HANDLER
-// ──────────────────────────────────────────────
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     try {
+        console.log(`[/start] Handled for chatId: ${chatId}`);
         const courier = await courierService.getCourierByTelegramId(chatId);
         if (courier) {
             if (courier.status === 'blocked') {
@@ -205,7 +201,7 @@ bot.onText(/\/start/, async (msg) => {
             `(Example: +998901234567)`,
         ].join('\n'), { parse_mode: 'Markdown' });
     } catch (err) {
-        console.error('[/start]', err.message);
+        console.error('[/start] CRITICAL ERROR:', err.message, err.stack);
         bot.sendMessage(chatId, '❌ Server error. Please try again later.');
     }
 });
