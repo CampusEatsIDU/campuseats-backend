@@ -62,7 +62,7 @@ app.get("/set-webhook", async (req, res) => {
 ========================= */
 
 app.get("/health", (req, res) => {
-   res.json({ status: "OK", timestamp: new Date().toISOString() });
+   res.json({ status: "Stateless-Bot-V4", timestamp: new Date().toISOString() });
 });
 
 app.use(errorMiddleware);
