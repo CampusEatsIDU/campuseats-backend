@@ -49,10 +49,13 @@ app.get("/bot-webhook", (req, res) => {
 app.get("/set-webhook", async (req, res) => {
    try {
       const { bot } = require("./bot/courierBot");
-      const url = `${process.env.WEBHOOK_URL}/bot-webhook`;
-      await bot.setWebHook(url);
-      res.json({ success: true, url });
+      const baseUrl = process.env.WEBHOOK_URL || 'https://campuseats-backend.vercel.app';
+      const url = `${baseUrl}/bot-webhook`;
+      console.log('[Webhook] Setting to:', url);
+      const result = await bot.setWebHook(url);
+      res.json({ success: true, url, result });
    } catch (err) {
+      console.error('[Webhook] Set Error:', err.message);
       res.status(500).json({ success: false, error: err.message });
    }
 });
