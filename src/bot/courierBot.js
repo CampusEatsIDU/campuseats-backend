@@ -21,18 +21,16 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 let bot;
 if (token && token.includes(':')) {
-    if (WEBHOOK_URL) {
-        // Force Webhook mode (Vercel)
-        bot = new TelegramBot(token, { webHook: false });
-        console.log('[CourierBot] Started in WEBHOOK mode (Stateless)');
-    } else if (!IS_PRODUCTION) {
-        // Polling mode (Local only)
+    // Determine if we should use polling (only locally and ONLY if no webhook is set)
+    const shouldPoll = !WEBHOOK_URL && !IS_PRODUCTION;
+
+    if (shouldPoll) {
         bot = new TelegramBot(token, { polling: true });
         console.log('[CourierBot] Started in POLLING mode (Local dev)');
     } else {
-        // Production but no URL? Still avoid polling to prevent conflict
-        bot = new TelegramBot(token, { webHook: false });
-        console.error('[CourierBot] Production mode but WEBHOOK_URL is missing. Polling DISABLED.');
+        // Default for Vercel/Production: strictly NO POLLING to avoid conflicts
+        bot = new TelegramBot(token, { webHook: false, polling: false });
+        console.log('[CourierBot] Started in WEBHOOK (stateless) mode');
     }
 } else {
     console.warn('[CourierBot] No valid COURIER_BOT_TOKEN. Bot is disabled.');
