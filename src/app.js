@@ -4,6 +4,7 @@ const helmet = require("helmet");
 
 const errorMiddleware = require("./middleware/error.middleware");
 const rateLimit = require("./middleware/rateLimit.middleware");
+const pool = require("./config/db"); // Added pool
 
 const app = express();
 
@@ -31,7 +32,7 @@ app.get("/", (req, res) => {
       env: process.env.NODE_ENV,
       webhook_url: process.env.WEBHOOK_URL ? "SET" : "NOT SET",
       polling: process.env.ALLOW_POLLING === "true" ? "ENABLED" : "DISABLED",
-      version: "Stateless-Bot-V5"
+      version: "Stateless-Bot-V6-Final"
    });
 });
 
@@ -44,13 +45,24 @@ app.use("/api/restaurant", require("./routes/restaurant.routes"));
 app.use("/api/courier", require("./routes/courier.routes"));
 
 // Inline bot webhook to avoid file loading issues on Vercel
-app.post("/bot-webhook", (req, res) => {
-   console.log('[Webhook] Update received:', JSON.stringify(req.body));
-   const { bot } = require("./bot/courierBot");
-   if (bot && typeof bot.processUpdate === 'function') {
-      bot.processUpdate(req.body);
+app.post("/bot-webhook", async (req, res) => {
+   try {
+      console.log('[Webhook] Update received:', JSON.stringify(req.body));
+      const { handleUpdate } = require("./bot/courierBot");
+
+      // CRITICAL: Await the update processing to keep Vercel lambda alive
+      if (handleUpdate) {
+         await handleUpdate(req.body);
+         console.log('[Webhook] Update processed successfully');
+      } else {
+         console.error('[Webhook] handleUpdate not found in courierBot');
+      }
+
+      res.sendStatus(200);
+   } catch (err) {
+      console.error('[Webhook] Error:', err.message, err.stack);
+      res.sendStatus(200); // Always 200 to Telegram
    }
-   res.sendStatus(200);
 });
 
 app.get("/bot-webhook", (req, res) => {
@@ -76,7 +88,6 @@ app.get("/set-webhook", async (req, res) => {
       const result = await bot.setWebHook(url);
       res.json({ success: true, url, result });
    } catch (err) {
-      console.error('[Webhook] Set Error:', err.message);
       res.status(500).json({ success: false, error: err.message });
    }
 });
@@ -86,7 +97,7 @@ app.get("/set-webhook", async (req, res) => {
 ========================= */
 
 app.get("/health", (req, res) => {
-   res.json({ status: "Stateless-Bot-V5", timestamp: new Date().toISOString() });
+   res.json({ status: "Stateless-Bot-V6-Final", timestamp: new Date().toISOString() });
 });
 
 app.use(errorMiddleware);

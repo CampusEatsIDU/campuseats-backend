@@ -156,31 +156,10 @@ async function sendMainMenu(chatId, messageId = null) {
     }
 }
 
-function formatOrderCard(order, courierEarnings = COURIER_EARNINGS) {
-    const paymentIcon = order.payment_method === 'cash' ? '💵 Cash' : '🏦 Bank Transfer';
-    const slaMin = 35;
-    const earnStr = Number(courierEarnings).toLocaleString('uz-UZ');
-    const totalStr = Number(order.total_price || 0).toLocaleString('uz-UZ');
-    const addr = order.delivery_address || 'N/A';
-
-    return [
-        `📦 *New Order #${order.id}*`,
-        ``,
-        `🍽 Restaurant: *${order.restaurant_name || `ID: ${order.restaurant_id}`}*`,
-        `👤 Client: *${order.client_name || order.user_phone || 'Unknown'}*`,
-        `📍 Delivery: ${addr}`,
-        `💰 Total: *${totalStr} UZS*`,
-        `💳 Payment: ${paymentIcon}`,
-        `🚴 Courier Earnings: *${earnStr} UZS*`,
-        `⏱ SLA: *${slaMin} minutes*`,
-    ].join('\n');
-}
-
-// ──────────────────────────────────────────────
-bot.onText(/\/start/, async (msg) => {
+async function handleStart(msg) {
     const chatId = msg.chat.id;
     try {
-        console.log(`[/start] Executing for chatId: ${chatId}`);
+        console.log(`[/start] Executing logic for chatId: ${chatId}`);
         const courier = await courierService.getCourierByTelegramId(chatId);
         if (courier) {
             if (courier.status === 'blocked') {
@@ -205,12 +184,9 @@ bot.onText(/\/start/, async (msg) => {
         console.error('[/start] CRITICAL ERROR:', err.message, err.stack);
         await bot.sendMessage(chatId, '❌ Server error. Please try again later.').catch(() => { });
     }
-});
+}
 
-// ──────────────────────────────────────────────
-// TEXT MESSAGE HANDLER (login flow + submit cash amount)
-// ──────────────────────────────────────────────
-bot.on('message', async (msg) => {
+async function handleTextMessage(msg) {
     const chatId = msg.chat.id;
     if (!msg.text || msg.text.startsWith('/')) return;
 
@@ -219,14 +195,13 @@ bot.on('message', async (msg) => {
         const s = await getSession(chatId);
 
         if (courier) {
-            // Already logged in — handle submit cash amount input
             if (s.step === 'awaiting_amount') {
                 const amount = parseFloat(msg.text.replace(/[^\d.]/g, ''));
                 if (isNaN(amount) || amount <= 0) {
-                    return bot.sendMessage(chatId, '❌ Invalid amount. Please enter a positive number:');
+                    return await bot.sendMessage(chatId, '❌ Invalid amount. Please enter a positive number:');
                 }
                 if (amount > Number(courier.cash_on_hand)) {
-                    return bot.sendMessage(chatId, `❌ You only have *${Number(courier.cash_on_hand).toLocaleString('uz-UZ')} UZS* on hand.`, { parse_mode: 'Markdown' });
+                    return await bot.sendMessage(chatId, `❌ You only have *${Number(courier.cash_on_hand).toLocaleString('uz-UZ')} UZS* on hand.`, { parse_mode: 'Markdown' });
                 }
 
                 const res = await courierService.submitCash(courier.id, amount);
@@ -239,54 +214,47 @@ bot.on('message', async (msg) => {
                         `Amount: *${amount.toLocaleString('uz-UZ')} UZS*`,
                         `Status: Pending admin confirmation`,
                     ].join('\n'), { parse_mode: 'Markdown' });
-                    // Notify superadmin
                     await notifySuperAdminCashSubmit(courier, amount);
                 } else {
                     await bot.sendMessage(chatId, `❌ Failed: ${res.message}`);
                 }
-                return sendMainMenu(chatId);
+                return await sendMainMenu(chatId);
             }
-            return; // ignore other messages when logged in
+            return;
         }
 
-        // Login flow
         if (s.step === 'awaiting_phone') {
             const phone = msg.text.trim();
             await setSessionStep(chatId, 'awaiting_password', { phone });
-            return bot.sendMessage(chatId, '🔑 Now enter your *password*:', { parse_mode: 'Markdown' });
+            return await bot.sendMessage(chatId, '🔑 Now enter your *password*:', { parse_mode: 'Markdown' });
         }
 
         if (s.step === 'awaiting_password') {
             const pw = msg.text.trim();
             const phone = s.data?.phone;
-
-            // Delete the password message for security
-            bot.deleteMessage(chatId, msg.message_id).catch(() => { });
+            await bot.deleteMessage(chatId, msg.message_id).catch(() => { });
 
             if (!phone) {
                 await setSessionStep(chatId, 'awaiting_phone');
-                return bot.sendMessage(chatId, '❌ Error: Phone not found. Please enter phone again:');
+                return await bot.sendMessage(chatId, '❌ Error: Phone not found. Please enter phone again:');
             }
 
             const res = await courierService.login(phone, pw, chatId);
             if (res.success) {
                 await clearSession(chatId);
                 await bot.sendMessage(chatId, `✅ *Login successful!*\nWelcome, ${res.courier.phone}!`, { parse_mode: 'Markdown' });
-                return sendMainMenu(chatId);
+                return await sendMainMenu(chatId);
             } else {
                 await setSessionStep(chatId, 'awaiting_phone');
-                return bot.sendMessage(chatId, `❌ *Login failed:* ${res.message}\n\nPlease enter your phone number again:`, { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, `❌ *Login failed:* ${res.message}\n\nPlease enter your phone number again:`, { parse_mode: 'Markdown' });
             }
         }
     } catch (err) {
-        console.error('[message handler]', err.message);
+        console.error('[handleTextMessage]', err.message);
     }
-});
+}
 
-// ──────────────────────────────────────────────
-// CALLBACK QUERY HANDLER
-// ──────────────────────────────────────────────
-bot.on('callback_query', async (query) => {
+async function handleCallbackQuery(query) {
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
     const data = query.data;
@@ -294,48 +262,44 @@ bot.on('callback_query', async (query) => {
     try {
         const courier = await courierService.getCourierByTelegramId(chatId);
 
-        // Rating handler (no auth needed — customer rates courier)
         if (data.startsWith('rate_')) {
-            return handleRating(query, data);
+            return await handleRating(query, data);
         }
 
         if (!courier) {
-            return bot.answerCallbackQuery(query.id, { text: '❌ Please /start and login first.', show_alert: true });
+            return await bot.answerCallbackQuery(query.id, { text: '❌ Please /start and login first.', show_alert: true });
         }
         if (courier.status === 'blocked') {
-            return bot.answerCallbackQuery(query.id, { text: '🚫 Your account is blocked.', show_alert: true });
+            return await bot.answerCallbackQuery(query.id, { text: '🚫 Your account is blocked.', show_alert: true });
         }
 
-        await bot.answerCallbackQuery(query.id); // acknowledge to remove loading
+        await bot.answerCallbackQuery(query.id);
 
-        // ── MAIN MENU ──
         if (data === 'main_menu') {
-            return sendMainMenu(chatId, messageId);
+            return await sendMainMenu(chatId, messageId);
         }
 
-        // ── ONLINE/OFFLINE ──
         if (data === 'go_online') {
             if (Number(courier.cash_on_hand) >= CASH_LIMIT) {
-                return bot.answerCallbackQuery(query.id, {
+                return await bot.answerCallbackQuery(query.id, {
                     text: `⚠️ Cash limit exceeded (${Number(courier.cash_on_hand).toLocaleString('uz-UZ')} UZS). Submit cash first!`,
                     show_alert: true
                 });
             }
             await courierService.setOnline(courier.id, true);
-            return sendMainMenu(chatId, messageId);
+            return await sendMainMenu(chatId, messageId);
         }
 
         if (data === 'go_offline') {
             await courierService.setOnline(courier.id, false);
-            return sendMainMenu(chatId, messageId);
+            return await sendMainMenu(chatId, messageId);
         }
 
-        // ── ACTIVE ORDER ──
         if (data === 'active_order') {
             const order = await courierService.getActiveOrder(courier.id);
             if (!order) {
                 await bot.answerCallbackQuery(query.id, { text: '📭 No active orders right now.', show_alert: false });
-                return sendMainMenu(chatId, messageId);
+                return await sendMainMenu(chatId, messageId);
             }
 
             const slaLeft = order.sla_delivery_deadline
@@ -356,17 +320,16 @@ bot.on('callback_query', async (query) => {
                 slaStr,
             ].filter(Boolean).join('\n');
 
-            return bot.editMessageText(text, {
+            return await bot.editMessageText(text, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
                 reply_markup: buildOrderActionsKeyboard(order)
-            }).catch(() => {
-                bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: buildOrderActionsKeyboard(order) });
+            }).catch(async () => {
+                await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: buildOrderActionsKeyboard(order) });
             });
         }
 
-        // ── MY STATS ──
         if (data === 'my_stats') {
             const stats = await courierService.getCourierStats(courier.id);
             const earningsStr = Number(stats.total_earnings || 0).toLocaleString('uz-UZ');
@@ -383,7 +346,7 @@ bot.on('callback_query', async (query) => {
                 `📅 Member since: ${new Date(stats.created_at).toLocaleDateString('en-GB')}`,
             ].join('\n');
 
-            return bot.editMessageText(text, {
+            return await bot.editMessageText(text, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
@@ -391,7 +354,6 @@ bot.on('callback_query', async (query) => {
             }).catch(() => bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }));
         }
 
-        // ── CASH INFO ──
         if (data === 'cash_info') {
             const cashStr = Number(courier.cash_on_hand || 0).toLocaleString('uz-UZ');
             const limitStr = CASH_LIMIT.toLocaleString('uz-UZ');
@@ -408,7 +370,7 @@ bot.on('callback_query', async (query) => {
                 pct >= 80 ? `\n⚠️ *Warning: Near limit! Submit cash soon.*` : '',
             ].join('\n');
 
-            return bot.editMessageText(text, {
+            return await bot.editMessageText(text, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
@@ -421,22 +383,20 @@ bot.on('callback_query', async (query) => {
             }).catch(() => bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }));
         }
 
-        // ── SUBMIT CASH ──
         if (data === 'submit_cash') {
             if (Number(courier.cash_on_hand) <= 0) {
-                return bot.editMessageText('💵 You have no cash to submit.', {
+                return await bot.editMessageText('💵 You have no cash to submit.', {
                     chat_id: chatId, message_id: messageId,
                     reply_markup: { inline_keyboard: [[{ text: '🔙 Back', callback_data: 'main_menu' }]] }
                 }).catch(() => { });
             }
             await setSessionStep(chatId, 'awaiting_amount');
-            return bot.editMessageText(
+            return await bot.editMessageText(
                 `🏦 *Submit Cash to Admin*\n\nCurrent balance: *${Number(courier.cash_on_hand).toLocaleString('uz-UZ')} UZS*\n\nEnter the amount to submit (type number):`,
                 { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
             ).catch(() => bot.sendMessage(chatId, `Enter the amount to submit:`));
         }
 
-        // ── PROFILE ──
         if (data === 'my_profile') {
             const text = [
                 `👤 *My Profile*`,
@@ -448,7 +408,7 @@ bot.on('callback_query', async (query) => {
                 `🔒 Account: *${courier.status}*`,
             ].join('\n');
 
-            return bot.editMessageText(text, {
+            return await bot.editMessageText(text, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
@@ -456,11 +416,10 @@ bot.on('callback_query', async (query) => {
             }).catch(() => bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }));
         }
 
-        // ── SOS MENU ──
         if (data === 'sos_menu') {
             const activeOrder = await courierService.getActiveOrder(courier.id);
             const oid = activeOrder ? activeOrder.id : 'none';
-            return bot.editMessageText(`🚨 *SOS Emergency Menu*\n\nSelect the type of emergency:`, {
+            return await bot.editMessageText(`🚨 *SOS Emergency Menu*\n\nSelect the type of emergency:`, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
@@ -468,30 +427,16 @@ bot.on('callback_query', async (query) => {
             }).catch(() => bot.sendMessage(chatId, '🚨 SOS - Select reason:', { reply_markup: buildSOSKeyboard(oid) }));
         }
 
-        if (data.startsWith('sos_order_')) {
-            const orderId = data.replace('sos_order_', '');
-            return bot.editMessageText(`🚨 *SOS for Order #${orderId}*\n\nSelect the emergency type:`, {
-                chat_id: chatId,
-                message_id: messageId,
-                parse_mode: 'Markdown',
-                reply_markup: buildSOSKeyboard(orderId)
-            }).catch(() => { });
-        }
-
         if (data.startsWith('sos_reason_')) {
-            const parts = data.split('_');
-            // Format: sos_reason_<orderId>_<reason_words>
-            // Split after "sos_reason_" -> "orderId_reason"
             const afterPrefix = data.replace('sos_reason_', '');
             const firstUnderscore = afterPrefix.indexOf('_');
             const orderId = afterPrefix.substring(0, firstUnderscore);
             const reason = afterPrefix.substring(firstUnderscore + 1).replace(/_/g, ' ');
 
             const res = await courierService.createSOS(courier.id, orderId !== 'none' ? orderId : null, reason);
-
             if (res.success) {
                 await notifySuperAdminSOS(courier, orderId !== 'none' ? orderId : null, reason);
-                return bot.editMessageText(
+                return await bot.editMessageText(
                     `🚨 *SOS Logged Successfully*\n\nReason: *${reason}*\nOrder: ${orderId !== 'none' ? `#${orderId}` : 'N/A'}\n\nA SuperAdmin has been notified and will contact you shortly.`,
                     {
                         chat_id: chatId,
@@ -503,11 +448,9 @@ bot.on('callback_query', async (query) => {
             }
         }
 
-        // ── ORDER OFFER: ACCEPT / SKIP ──
         if (data.startsWith('offer_accept_')) {
             const orderId = data.replace('offer_accept_', '');
             const res = await courierService.acceptOffer(orderId, courier.id);
-
             if (res.success) {
                 await bot.editMessageText(
                     `✅ *Order #${orderId} Accepted!*\n\nHead to the restaurant to pick up the order.\nSLA timer: 35 minutes started.`,
@@ -518,9 +461,9 @@ bot.on('callback_query', async (query) => {
                         reply_markup: { inline_keyboard: [[{ text: '📦 View Order Details', callback_data: 'active_order' }]] }
                     }
                 ).catch(() => { });
-                return sendMainMenu(chatId);
+                return await sendMainMenu(chatId);
             } else {
-                return bot.editMessageText(
+                return await bot.editMessageText(
                     `❌ *Could not accept Order #${orderId}*\n\nReason: ${res.message}\n(Order may have been taken by another courier)`,
                     {
                         chat_id: chatId,
@@ -532,24 +475,14 @@ bot.on('callback_query', async (query) => {
             }
         }
 
-        if (data.startsWith('offer_skip_')) {
-            const orderId = data.replace('offer_skip_', '');
-            return bot.editMessageText(
-                `⏭ *Order #${orderId} Skipped*`,
-                { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
-            ).catch(() => { });
-        }
-
-        // ── ORDER STATUS UPDATES ──
         if (data.startsWith('status_')) {
             const parts = data.split('_');
             const orderId = parts[parts.length - 1];
-            const newStatus = parts.slice(1, parts.length - 1).join('_'); // e.g. picked_up, on_way, delivered
-
+            const newStatus = parts.slice(1, parts.length - 1).join('_');
             const res = await courierService.updateOrderStatus(orderId, courier.id, newStatus);
 
             if (!res.success) {
-                return bot.sendMessage(chatId, `❌ Failed to update: ${res.message}`);
+                return await bot.sendMessage(chatId, `❌ Failed to update: ${res.message}`);
             }
 
             const statusMessages = {
@@ -557,48 +490,38 @@ bot.on('callback_query', async (query) => {
                 on_way: `🚗 *On the Way!*\nOrder #${orderId} is on its way to the client.`,
                 delivered: `✅ *Delivered!*\nOrder #${orderId} has been delivered successfully!\n\n🎉 Great work! Earnings added to your account.`,
             };
-
             const text = statusMessages[newStatus] || `✅ Status updated to: ${newStatus}`;
 
             if (newStatus === 'delivered') {
-                // Send rating request to customer
                 await sendRatingRequestToCustomer(orderId, courier);
-
                 await bot.editMessageText(text, {
                     chat_id: chatId,
                     message_id: messageId,
                     parse_mode: 'Markdown',
                     reply_markup: { inline_keyboard: [[{ text: '🏠 Back to Menu', callback_data: 'main_menu' }]] }
                 }).catch(() => { });
-                return sendMainMenu(chatId);
+                return await sendMainMenu(chatId);
             }
 
-            // Reload order for updated status
             const updatedOrder = await courierService.getActiveOrder(courier.id);
-
             await bot.editMessageText(text, {
                 chat_id: chatId,
                 message_id: messageId,
                 parse_mode: 'Markdown',
                 reply_markup: updatedOrder ? buildOrderActionsKeyboard(updatedOrder) : { inline_keyboard: [[{ text: '🏠 Menu', callback_data: 'main_menu' }]] }
-            }).catch(() => bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }));
+            }).catch(async () => await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' }));
         }
 
-        // ── CASH RECEIVED ──
         if (data.startsWith('cash_recv_')) {
             const parts = data.split('_');
-            // Format: cash_recv_<orderId>_<amount>
             const orderId = parts[2];
             const amount = parseFloat(parts[3]);
-
             const res = await courierService.markCashReceived(orderId, courier.id, amount);
 
             if (res.success) {
-                const amtStr = amount.toLocaleString('uz-UZ');
                 const updatedOrder = await courierService.getActiveOrder(courier.id);
-
                 await bot.editMessageText(
-                    `💵 *Cash Received: ${amtStr} UZS*\n\nOrder #${orderId} payment logged.\nYour cash balance updated.`,
+                    `💵 *Cash Received: ${amount.toLocaleString('uz-UZ')} UZS*\n\nOrder #${orderId} payment logged.\nYour cash balance updated.`,
                     {
                         chat_id: chatId,
                         message_id: messageId,
@@ -607,22 +530,41 @@ bot.on('callback_query', async (query) => {
                     }
                 ).catch(() => { });
             } else {
-                bot.sendMessage(chatId, `❌ Failed: ${res.message}`);
+                await bot.sendMessage(chatId, `❌ Failed: ${res.message}`);
             }
         }
-
     } catch (err) {
         console.error('[callback_query]', err.message, err.stack);
-        bot.answerCallbackQuery(query.id, { text: '❌ Server error. Please try again.', show_alert: true }).catch(() => { });
+        await bot.answerCallbackQuery(query.id, { text: '❌ Server error.', show_alert: true }).catch(() => { });
     }
-});
+}
+
+async function handleUpdate(update) {
+    if (update.message) {
+        if (update.message.text === '/start' || update.message.text?.startsWith('/start')) {
+            await handleStart(update.message);
+        } else {
+            await handleTextMessage(update.message);
+        }
+    } else if (update.callback_query) {
+        await handleCallbackQuery(update.callback_query);
+    }
+}
+
+// ──────────────────────────────────────────────
+// LISTENERS (only for polling mode)
+// ──────────────────────────────────────────────
+if (ALLOW_POLLING) {
+    bot.onText(/\/start/, handleStart);
+    bot.on('message', handleTextMessage);
+    bot.on('callback_query', handleCallbackQuery);
+}
 
 // ──────────────────────────────────────────────
 // RATING SYSTEM: Send rating request to CUSTOMER
 // ──────────────────────────────────────────────
 async function sendRatingRequestToCustomer(orderId, courier) {
     try {
-        // Get order + user telegram_id
         const orderRes = await pool.query(`
             SELECT o.*, u.telegram_id as user_telegram_id, u.full_name as user_name
             FROM orders o
@@ -632,8 +574,7 @@ async function sendRatingRequestToCustomer(orderId, courier) {
 
         if (orderRes.rows.length === 0) return;
         const order = orderRes.rows[0];
-
-        if (!order.user_telegram_id) return; // Customer not on Telegram
+        if (!order.user_telegram_id) return;
 
         const courierName = courier.full_name || courier.phone;
         const text = [
@@ -659,7 +600,6 @@ async function sendRatingRequestToCustomer(orderId, courier) {
         }).catch(() => null);
 
         if (sentMsg) {
-            // Store rating request
             await pool.query(`
                 INSERT INTO courier_rating_requests (order_id, courier_id, user_telegram_id, rating_message_id)
                 VALUES ($1, $2, $3, $4)
@@ -672,7 +612,6 @@ async function sendRatingRequestToCustomer(orderId, courier) {
 }
 
 async function handleRating(query, data) {
-    // Format: rate_<orderId>_<courierId>_<stars>
     const parts = data.split('_');
     const orderId = parts[1];
     const courierId = parts[2];
@@ -682,23 +621,18 @@ async function handleRating(query, data) {
 
     try {
         await bot.answerCallbackQuery(query.id);
-
-        // Check if already rated
         const ratingReq = await pool.query(
             `SELECT * FROM courier_rating_requests WHERE order_id = $1 AND courier_id = $2`,
             [orderId, courierId]
         );
 
         if (ratingReq.rows.length > 0 && ratingReq.rows[0].status === 'rated') {
-            return bot.editMessageText('✅ You have already rated this delivery.', {
+            return await bot.editMessageText('✅ You have already rated this delivery.', {
                 chat_id: chatId, message_id: messageId
             }).catch(() => { });
         }
 
-        // Apply rating
         await courierService.applyRating(courierId, stars);
-
-        // Update rating request
         await pool.query(
             `UPDATE courier_rating_requests SET rating = $1, status = 'rated', rated_at = NOW() WHERE order_id = $2 AND courier_id = $3`,
             [stars, orderId, courierId]
@@ -706,10 +640,9 @@ async function handleRating(query, data) {
 
         const starEmojis = '⭐'.repeat(stars);
         await bot.editMessageText(
-            `${starEmojis}\n\n*Thank you for your rating!*\nYou gave ${stars} star${stars > 1 ? 's' : ''} to your courier.\nThis helps us improve our service.`,
+            `${starEmojis}\n\n*Thank you for your rating!*\nYou gave ${stars} star${stars > 1 ? 's' : ''} to your courier.`,
             { chat_id: chatId, message_id: messageId, parse_mode: 'Markdown' }
         ).catch(() => { });
-
     } catch (err) {
         console.error('[handleRating]', err.message);
     }
@@ -735,27 +668,11 @@ async function notifySuperAdminSOS(courier, orderId, reason) {
         `Courier: *${courier.full_name || courier.phone}* (ID: ${courier.id})`,
         `Order: ${orderId ? `#${orderId}` : 'N/A'}`,
         `Reason: *${reason}*`,
-        `Time: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Tashkent' })}`,
+        `Time: ${new Date().toLocaleString('en-GB')}`,
     ].join('\n');
 
     for (const adminId of admins) {
-        bot.sendMessage(adminId, text, { parse_mode: 'Markdown' }).catch(() => { });
-    }
-}
-
-async function notifySuperAdminSLABreach(order, courierTelegramId) {
-    const admins = await getSuperAdminTelegramIds();
-    const text = [
-        `⚠️ *SLA Breach Detected!*`,
-        ``,
-        `Order: *#${order.id}*`,
-        `Courier ID: *${order.courier_id}*`,
-        `Deadline was: ${new Date(order.sla_delivery_deadline).toLocaleString('en-GB', { timeZone: 'Asia/Tashkent' })}`,
-        `Status: ${order.delivery_status}`,
-    ].join('\n');
-
-    for (const adminId of admins) {
-        bot.sendMessage(adminId, text, { parse_mode: 'Markdown' }).catch(() => { });
+        await bot.sendMessage(adminId, text, { parse_mode: 'Markdown' }).catch(() => { });
     }
 }
 
@@ -770,7 +687,7 @@ async function notifySuperAdminCashSubmit(courier, amount) {
     ].join('\n');
 
     for (const adminId of admins) {
-        bot.sendMessage(adminId, text, {
+        await bot.sendMessage(adminId, text, {
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [
@@ -781,12 +698,8 @@ async function notifySuperAdminCashSubmit(courier, amount) {
     }
 }
 
-// ──────────────────────────────────────────────
-// BROADCAST ORDER TO COURIERS (called externally)
-// ──────────────────────────────────────────────
 async function broadcastOrderToCouriers(order) {
     try {
-        // Get available couriers: online, active, not currently delivering, under cash limit
         const result = await pool.query(`
             SELECT c.id, c.telegram_id, c.phone, c.cash_on_hand, c.full_name
             FROM couriers c
@@ -798,46 +711,25 @@ async function broadcastOrderToCouriers(order) {
                   WHERE delivery_status NOT IN ('delivered', 'cancelled')
                   AND courier_id IS NOT NULL
               )
-            ORDER BY c.rating DESC
-            LIMIT 3
         `, [CASH_LIMIT]);
 
-        if (result.rows.length === 0) {
-            console.log(`[Broadcast] No available couriers for order #${order.id}`);
-            return;
-        }
-
-        // Get restaurant name for display
-        let restaurantName = `ID: ${order.restaurant_id}`;
-        try {
-            const rRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [order.restaurant_id]);
-            if (rRes.rows.length > 0) restaurantName = rRes.rows[0].full_name;
-        } catch { }
-
-        // Get customer name
-        let clientName = 'Customer';
-        try {
-            const uRes = await pool.query('SELECT full_name, phone FROM users WHERE id = $1', [order.user_id]);
-            if (uRes.rows.length > 0) clientName = uRes.rows[0].full_name || uRes.rows[0].phone;
-        } catch { }
-
-        const orderForCard = { ...order, restaurant_name: restaurantName, client_name: clientName };
-        const text = formatOrderCard(orderForCard);
-
+        const text = formatOrderCard(order);
         const opts = {
             parse_mode: 'Markdown',
             reply_markup: {
-                inline_keyboard: [[
-                    { text: '✅ Accept Order', callback_data: `offer_accept_${order.id}` },
-                    { text: '❌ Skip', callback_data: `offer_skip_${order.id}` }
-                ]]
+                inline_keyboard: [
+                    [
+                        { text: '✅ Accept Order', callback_data: `offer_accept_${order.id}` },
+                        { text: '⏭ Skip', callback_data: `offer_skip_${order.id}` }
+                    ]
+                ]
             }
         };
 
         console.log(`[Broadcast] Sending order #${order.id} to ${result.rows.length} couriers`);
         for (const c of result.rows) {
             if (c.telegram_id) {
-                bot.sendMessage(c.telegram_id, text, opts).catch(err =>
+                await bot.sendMessage(c.telegram_id, text, opts).catch(err =>
                     console.error(`[Broadcast] Failed to notify courier ${c.id}:`, err.message)
                 );
             }
@@ -852,7 +744,7 @@ async function broadcastOrderToCouriers(order) {
 // ──────────────────────────────────────────────
 module.exports = {
     bot,
+    handleUpdate,
     broadcastOrderToCouriers,
-    notifySuperAdminSLABreach,
     sendMainMenu,
 };
