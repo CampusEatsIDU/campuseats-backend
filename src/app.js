@@ -25,6 +25,16 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
    ROUTES
 ========================= */
 
+app.get("/", (req, res) => {
+   res.json({
+      message: "CampusEats API is running",
+      env: process.env.NODE_ENV,
+      webhook_url: process.env.WEBHOOK_URL ? "SET" : "NOT SET",
+      polling: process.env.ALLOW_POLLING === "true" ? "ENABLED" : "DISABLED",
+      version: "Stateless-Bot-V5"
+   });
+});
+
 app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/orders", require("./routes/order.routes"));
 app.use("/api/verification", require("./routes/verification.routes"));
@@ -66,7 +76,7 @@ app.get("/set-webhook", async (req, res) => {
 ========================= */
 
 app.get("/health", (req, res) => {
-   res.json({ status: "Stateless-Bot-V4", timestamp: new Date().toISOString() });
+   res.json({ status: "Stateless-Bot-V5", timestamp: new Date().toISOString() });
 });
 
 app.use(errorMiddleware);
