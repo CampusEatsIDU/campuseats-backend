@@ -57,6 +57,16 @@ app.get("/bot-webhook", (req, res) => {
    res.json({ status: "Courier Bot webhook active", timestamp: new Date().toISOString() });
 });
 
+app.get("/test-db", async (req, res) => {
+   try {
+      const dbUrl = process.env.DATABASE_URL || 'NONE';
+      const result = await pool.query('SELECT NOW()');
+      res.json({ success: true, time: result.rows[0], url_prefix: dbUrl.substring(0, 15) + '...' });
+   } catch (err) {
+      res.status(500).json({ success: false, error: err.message, stack: err.stack });
+   }
+});
+
 app.get("/set-webhook", async (req, res) => {
    try {
       const { bot } = require("./bot/courierBot");
