@@ -85,8 +85,8 @@ router.post(
 
       res.status(201).json({ message: "Verification submitted successfully." });
     } catch (err) {
-      console.error("Submit verification error:", err.message);
-      res.status(500).json({ message: "Server error" });
+      console.error("Submit verification error:", err);
+      res.status(500).json({ message: "Server error", detail: err.message, stack: err.stack });
     }
   }
 );
