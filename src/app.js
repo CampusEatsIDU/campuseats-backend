@@ -46,6 +46,17 @@ app.get("/bot-webhook", (req, res) => {
    res.json({ status: "Courier Bot webhook active", timestamp: new Date().toISOString() });
 });
 
+app.get("/set-webhook", async (req, res) => {
+   try {
+      const { bot } = require("./bot/courierBot");
+      const url = `${process.env.WEBHOOK_URL}/bot-webhook`;
+      await bot.setWebHook(url);
+      res.json({ success: true, url });
+   } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+   }
+});
+
 /* =========================
    HEALTH CHECK
 ========================= */

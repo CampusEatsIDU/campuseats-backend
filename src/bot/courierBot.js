@@ -24,10 +24,11 @@ if (token && token.includes(':')) {
     if (IS_PRODUCTION && WEBHOOK_URL) {
         // Webhook mode — works on Vercel / any serverless platform
         bot = new TelegramBot(token, { webHook: false });
-        bot.setWebHook(`${WEBHOOK_URL}/bot-webhook`)
-            .then(() => console.log('[CourierBot] Webhook set:', `${WEBHOOK_URL}/bot-webhook`))
-            .catch(err => console.error('[CourierBot] Webhook set failed:', err.message));
-        console.log('[CourierBot] Started in WEBHOOK mode');
+        // NOTE: Webhook should be set manually to avoid 429 rate limit on serverless restarts
+        // bot.setWebHook(`${WEBHOOK_URL}/bot-webhook`)
+        //    .then(() => console.log('[CourierBot] Webhook set:', `${WEBHOOK_URL}/bot-webhook`))
+        //    .catch(err => console.error('[CourierBot] Webhook set failed:', err.message));
+        console.log('[CourierBot] Started in WEBHOOK mode (webhook setting deferred)');
     } else {
         // Polling mode — works locally
         bot = new TelegramBot(token, { polling: true });
