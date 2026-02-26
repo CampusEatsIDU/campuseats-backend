@@ -35,6 +35,7 @@ app.use("/api/courier", require("./routes/courier.routes"));
 
 // Inline bot webhook to avoid file loading issues on Vercel
 app.post("/bot-webhook", (req, res) => {
+   console.log('[Webhook] Update received:', JSON.stringify(req.body));
    const { bot } = require("./bot/courierBot");
    if (bot && typeof bot.processUpdate === 'function') {
       bot.processUpdate(req.body);

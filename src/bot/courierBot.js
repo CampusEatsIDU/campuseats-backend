@@ -15,24 +15,24 @@ const token = process.env.COURIER_BOT_TOKEN || '8712157596:AAFQLeLB8dwf0Gz7kP69o
 const CASH_LIMIT = parseInt(process.env.COURIER_CASH_LIMIT || '500000');
 const COURIER_EARNINGS = parseInt(process.env.COURIER_EARNINGS_PER_ORDER || '15000');
 
-// Detect environment: use webhook on Vercel/production, polling locally
+// Detect environment
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const WEBHOOK_URL = process.env.WEBHOOK_URL; // e.g. https://your-app.vercel.app
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
 let bot;
 if (token && token.includes(':')) {
-    if (IS_PRODUCTION && WEBHOOK_URL) {
-        // Webhook mode — works on Vercel / any serverless platform
+    if (WEBHOOK_URL) {
+        // Force Webhook mode (Vercel)
         bot = new TelegramBot(token, { webHook: false });
-        // NOTE: Webhook should be set manually to avoid 429 rate limit on serverless restarts
-        // bot.setWebHook(`${WEBHOOK_URL}/bot-webhook`)
-        //    .then(() => console.log('[CourierBot] Webhook set:', `${WEBHOOK_URL}/bot-webhook`))
-        //    .catch(err => console.error('[CourierBot] Webhook set failed:', err.message));
-        console.log('[CourierBot] Started in WEBHOOK mode (webhook setting deferred)');
-    } else {
-        // Polling mode — works locally
+        console.log('[CourierBot] Started in WEBHOOK mode (Stateless)');
+    } else if (!IS_PRODUCTION) {
+        // Polling mode (Local only)
         bot = new TelegramBot(token, { polling: true });
-        console.log('[CourierBot] Started in POLLING mode (local dev)');
+        console.log('[CourierBot] Started in POLLING mode (Local dev)');
+    } else {
+        // Production but no URL? Still avoid polling to prevent conflict
+        bot = new TelegramBot(token, { webHook: false });
+        console.error('[CourierBot] Production mode but WEBHOOK_URL is missing. Polling DISABLED.');
     }
 } else {
     console.warn('[CourierBot] No valid COURIER_BOT_TOKEN. Bot is disabled.');
