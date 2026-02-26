@@ -1,0 +1,42 @@
+[
+  {
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "user_id",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "reviewed_by",
+    "data_type": "integer"
+  },
+  {
+    "column_name": "reviewed_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "column_name": "back_image_url",
+    "data_type": "text"
+  },
+  {
+    "column_name": "front_image_url",
+    "data_type": "text"
+  },
+  {
+    "column_name": "file_url",
+    "data_type": "text"
+  },
+  {
+    "column_name": "status",
+    "data_type": "character varying"
+  },
+  {
+    "column_name": "rejection_reason",
+    "data_type": "text"
+  }
+]
