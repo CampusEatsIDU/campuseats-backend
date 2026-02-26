@@ -865,7 +865,53 @@ router.get('/couriers', async (req, res) => {
    }
 });
 
-// POST /api/admin/couriers/create — create a new courier
+// POST /api/admin/couriers — create courier with generated temporary password
+router.post('/couriers', async (req, res) => {
+   try {
+      const { full_name, phone, transport_type, city } = req.body;
+
+      if (!full_name || !phone) {
+         return res.status(400).json({ message: 'full_name and phone are required' });
+      }
+
+      // Check if phone already exists
+      const exists = await pool.query('SELECT id FROM couriers WHERE phone = $1', [phone]);
+      if (exists.rows.length > 0) {
+         return res.status(400).json({ message: 'Phone already registered as courier' });
+      }
+
+      // Generate 8-digit numeric temporary password
+      const tempPassword = String(Math.floor(10000000 + Math.random() * 90000000));
+
+      const courier = await courierService.createCourier(phone, tempPassword, full_name);
+
+      await AuditService.log(req.user.id, 'COURIER_CREATED', {
+         courier_id: courier.id,
+         phone,
+         full_name,
+         transport_type: transport_type || null,
+         city: city || null
+      });
+
+      res.status(201).json({
+         message: 'Courier created successfully. SAVE THE PASSWORD - SHOWN ONCE ONLY.',
+         courier: {
+            id: courier.id,
+            full_name: courier.full_name,
+            phone: courier.phone,
+            status: courier.status,
+            rating: courier.rating,
+            created_at: courier.created_at,
+            temporary_password: tempPassword
+         }
+      });
+   } catch (err) {
+      console.error('Create courier error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// Legacy: POST /api/admin/couriers/create — keep for backward compatibility
 router.post('/couriers/create', async (req, res) => {
    try {
       const { phone, password, full_name } = req.body;
@@ -873,7 +919,6 @@ router.post('/couriers/create', async (req, res) => {
          return res.status(400).json({ message: 'Phone and password are required' });
       }
 
-      // Check if phone already exists
       const exists = await pool.query('SELECT id FROM couriers WHERE phone = $1', [phone]);
       if (exists.rows.length > 0) {
          return res.status(400).json({ message: 'Phone already registered as courier' });
@@ -896,7 +941,7 @@ router.post('/couriers/create', async (req, res) => {
             status: courier.status,
             rating: courier.rating,
             created_at: courier.created_at,
-            temporary_password: password  // shown once
+            temporary_password: password
          }
       });
    } catch (err) {
@@ -967,10 +1012,70 @@ router.post('/couriers/:id/unblock', async (req, res) => {
    }
 });
 
+// PATCH /api/admin/couriers/:id/status — unified status change (active / blocked)
+router.patch('/couriers/:id/status', async (req, res) => {
+   try {
+      const { status } = req.body;
+      const { id } = req.params;
+
+      if (!status || !['active', 'blocked'].includes(status)) {
+         return res.status(400).json({ message: "Invalid status. Allowed: 'active', 'blocked'" });
+      }
+
+      let courier;
+
+      if (status === 'blocked') {
+         courier = await courierService.blockCourier(id);
+         if (!courier) return res.status(404).json({ message: 'Courier not found' });
+
+         await AuditService.log(req.user.id, 'COURIER_BLOCKED', { courier_id: parseInt(id) });
+
+         // Notify the courier via bot (same as /block)
+         try {
+            const { bot } = require('../bot/courierBot');
+            const courierData = await pool.query('SELECT telegram_id FROM couriers WHERE id = $1', [id]);
+            const tgId = courierData.rows[0]?.telegram_id;
+            if (tgId) {
+               bot.sendMessage(
+                  tgId,
+                  '🚫 Your courier account has been *blocked* by the administrator.\nContact SuperAdmin for more information.',
+                  { parse_mode: 'Markdown' }
+               ).catch(() => { });
+            }
+         } catch { }
+      } else {
+         courier = await courierService.unblockCourier(id);
+         if (!courier) return res.status(404).json({ message: 'Courier not found' });
+
+         await AuditService.log(req.user.id, 'COURIER_UNBLOCKED', { courier_id: parseInt(id) });
+
+         // Notify the courier (same as /unblock)
+         try {
+            const { bot } = require('../bot/courierBot');
+            const courierData = await pool.query('SELECT telegram_id FROM couriers WHERE id = $1', [id]);
+            const tgId = courierData.rows[0]?.telegram_id;
+            if (tgId) {
+               bot.sendMessage(
+                  tgId,
+                  '✅ Your courier account has been *unblocked*.\nYou can now go online and receive orders.',
+                  { parse_mode: 'Markdown' }
+               ).catch(() => { });
+            }
+         } catch { }
+      }
+
+      res.json({ message: 'Courier status updated', courier });
+   } catch (err) {
+      console.error('Update courier status error:', err.message);
+      res.status(500).json({ message: 'Server error' });
+   }
+});
+
 // POST /api/admin/couriers/:id/reset-password
 router.post('/couriers/:id/reset-password', async (req, res) => {
    try {
-      const newPassword = Math.random().toString(36).slice(-8);
+      // Generate new 8-digit numeric temporary password
+      const newPassword = String(Math.floor(10000000 + Math.random() * 90000000));
       const courier = await courierService.resetCourierPassword(req.params.id, newPassword);
       if (!courier) return res.status(404).json({ message: 'Courier not found' });
 
