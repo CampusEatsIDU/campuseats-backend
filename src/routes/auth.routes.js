@@ -96,7 +96,7 @@ router.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, phone, password, role, full_name, balance, is_student_verified FROM users WHERE phone = $1",
+      "SELECT id, phone, password, role, full_name, balance, is_student_verified, status FROM users WHERE phone = $1",
       [phoneNorm]
     );
 
@@ -105,6 +105,14 @@ router.post("/login", async (req, res) => {
     }
 
     const user = result.rows[0];
+
+    // Check if user is blocked or deleted
+    if (user.status === "blocked") {
+      return res.status(403).json({ message: "Your account has been blocked. Contact admin." });
+    }
+    if (user.status === "deleted") {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
     if (!user.password) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -129,7 +137,8 @@ router.post("/login", async (req, res) => {
         role: user.role,
         fullName: user.full_name,
         balance: user.balance,
-        is_student_verified: user.is_student_verified
+        is_student_verified: user.is_student_verified,
+        status: user.status
       },
       token
     });

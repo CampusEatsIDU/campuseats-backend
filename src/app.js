@@ -3,12 +3,16 @@ const cors = require("cors");
 const helmet = require("helmet");
 
 const errorMiddleware = require("./middleware/error.middleware");
+const rateLimit = require("./middleware/rateLimit.middleware");
 
 const app = express();
 
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
+
+// Rate limiting: 200 requests per minute per IP
+app.use(rateLimit({ windowMs: 60000, max: 200 }));
 
 /* =========================
    STATIC FILES
@@ -32,7 +36,7 @@ app.use("/api/admin", require("./routes/admin.routes"));
 ========================= */
 
 app.get("/health", (req, res) => {
-   res.json({ status: "OK" });
+   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
 app.use(errorMiddleware);
