@@ -178,4 +178,40 @@ router.post("/forgot-password", async (req, res) => {
   });
 });
 
+/* =========================
+CHANGE PASSWORD
+========================= */
+router.post("/profile/password", require("../middleware/auth.middleware"), async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new password required" });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters" });
+    }
+
+    const userId = req.user.id;
+    const userRes = await pool.query("SELECT password FROM users WHERE id = $1", [userId]);
+
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, userRes.rows[0].password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashed, userId]);
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("CHANGE PASS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
