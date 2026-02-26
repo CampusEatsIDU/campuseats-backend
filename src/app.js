@@ -34,7 +34,7 @@ app.use("/api/restaurant", require("./routes/restaurant.routes"));
 app.use("/api/courier", require("./routes/courier.routes"));
 
 // Inline bot webhook to avoid file loading issues on Vercel
-app.post("/api/courier-bot/webhook", (req, res) => {
+app.post("/bot-webhook", (req, res) => {
    const { bot } = require("./bot/courierBot");
    if (bot && typeof bot.processUpdate === 'function') {
       bot.processUpdate(req.body);
@@ -42,7 +42,7 @@ app.post("/api/courier-bot/webhook", (req, res) => {
    res.sendStatus(200);
 });
 
-app.get("/api/courier-bot/webhook", (req, res) => {
+app.get("/bot-webhook", (req, res) => {
    res.json({ status: "Courier Bot webhook active", timestamp: new Date().toISOString() });
 });
 

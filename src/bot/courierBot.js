@@ -24,8 +24,8 @@ if (token && token.includes(':')) {
     if (IS_PRODUCTION && WEBHOOK_URL) {
         // Webhook mode — works on Vercel / any serverless platform
         bot = new TelegramBot(token, { webHook: false });
-        bot.setWebHook(`${WEBHOOK_URL}/api/courier-bot/webhook`)
-            .then(() => console.log('[CourierBot] Webhook set:', `${WEBHOOK_URL}/api/courier-bot/webhook`))
+        bot.setWebHook(`${WEBHOOK_URL}/bot-webhook`)
+            .then(() => console.log('[CourierBot] Webhook set:', `${WEBHOOK_URL}/bot-webhook`))
             .catch(err => console.error('[CourierBot] Webhook set failed:', err.message));
         console.log('[CourierBot] Started in WEBHOOK mode');
     } else {
