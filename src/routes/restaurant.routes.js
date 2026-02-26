@@ -13,6 +13,40 @@ const restrictToRestaurant = (req, res, next) => {
   next();
 };
 
+// --- PUBLIC ROUTES (No Auth Required) ---
+
+// 1. Get all restaurants
+router.get("/list", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT u.id, u.full_name as name, p.* 
+      FROM users u
+      JOIN restaurant_profiles p ON u.id = p.user_id
+      WHERE u.role = 'restaurant'
+      ORDER BY p.is_open DESC, u.full_name ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// 2. Get restaurant menu
+router.get("/:id/menu-public", async (req, res) => {
+  try {
+    const restId = req.params.id;
+    const result = await pool.query(
+      "SELECT * FROM menu_items WHERE restaurant_id = $1 AND is_available = true ORDER BY sort_order ASC, name ASC",
+      [restId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.use(authMiddleware);
 router.use(restrictToRestaurant);
 
