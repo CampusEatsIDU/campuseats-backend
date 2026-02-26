@@ -180,29 +180,30 @@ function formatOrderCard(order, courierEarnings = COURIER_EARNINGS) {
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     try {
-        console.log(`[/start] Handled for chatId: ${chatId}`);
+        console.log(`[/start] Executing for chatId: ${chatId}`);
         const courier = await courierService.getCourierByTelegramId(chatId);
         if (courier) {
             if (courier.status === 'blocked') {
-                return bot.sendMessage(chatId, '🚫 Your account has been *blocked*.\nContact SuperAdmin for assistance.', { parse_mode: 'Markdown' });
+                return await bot.sendMessage(chatId, '🚫 Your account has been *blocked*.\nContact SuperAdmin for assistance.', { parse_mode: 'Markdown' });
             }
             await clearSession(chatId);
-            return sendMainMenu(chatId);
+            return await sendMainMenu(chatId);
         }
 
         // Not registered — start login
         await clearSession(chatId);
         await setSessionStep(chatId, 'awaiting_phone');
 
-        bot.sendMessage(chatId, [
+        await bot.sendMessage(chatId, [
             `👋 *Welcome to CampusEats Courier Bot!*`,
             ``,
             `Please enter your *phone number* to login:`,
             `(Example: +998901234567)`,
         ].join('\n'), { parse_mode: 'Markdown' });
+        console.log(`[/start] Welcome message sent to ${chatId}`);
     } catch (err) {
         console.error('[/start] CRITICAL ERROR:', err.message, err.stack);
-        bot.sendMessage(chatId, '❌ Server error. Please try again later.');
+        await bot.sendMessage(chatId, '❌ Server error. Please try again later.').catch(() => { });
     }
 });
 
