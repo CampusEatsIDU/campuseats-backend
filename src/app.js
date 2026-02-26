@@ -32,7 +32,19 @@ app.use("/api/telegram", require("./routes/telegram.routes"));
 app.use("/api/admin", require("./routes/admin.routes"));
 app.use("/api/restaurant", require("./routes/restaurant.routes"));
 app.use("/api/courier", require("./routes/courier.routes"));
-app.use("/api/courier-bot", require("./routes/courierBot.routes"));
+
+// Inline bot webhook to avoid file loading issues on Vercel
+app.post("/api/courier-bot/webhook", (req, res) => {
+   const { bot } = require("./bot/courierBot");
+   if (bot && typeof bot.processUpdate === 'function') {
+      bot.processUpdate(req.body);
+   }
+   res.sendStatus(200);
+});
+
+app.get("/api/courier-bot/webhook", (req, res) => {
+   res.json({ status: "Courier Bot webhook active", timestamp: new Date().toISOString() });
+});
 
 /* =========================
    HEALTH CHECK

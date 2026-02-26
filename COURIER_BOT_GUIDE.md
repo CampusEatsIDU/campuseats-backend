@@ -47,6 +47,7 @@
 - Защита от race conditions через `SELECT FOR UPDATE` + транзакции
 - Только встроенные клавиатуры (inline keyboards) — никаких reply keyboards
 - Все действия логируются в `audit_logs`
+- **Безсостоятельная архитектура (Stateless)**: Все сессии и шаги диалога хранятся в базе данных (`bot_sessions`), что позволяет боту работать на Vercel (серверлесс).
 
 ---
 
@@ -410,6 +411,7 @@ TELEGRAM_GROUP_ID=<group_id>
 
 # Курьерский бот
 COURIER_BOT_TOKEN=8712157596:AAFQLeLB8dwf0Gz7kP69ocxyiiYwX2SMaQQ
+WEBHOOK_URL=https://campuseats-backend.vercel.app  # ОБЯЗАТЕЛЬНО для Vercel
 
 # Бизнес-настройки
 COURIER_CASH_LIMIT=500000          # Лимит наличных в UZS
