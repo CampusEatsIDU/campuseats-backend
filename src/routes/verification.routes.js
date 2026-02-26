@@ -68,9 +68,14 @@ router.post(
         return res.status(400).json({ message: "You already have a pending verification request." });
       }
 
-      // Store relative URLs for the database
-      const frontImageUrl = `/uploads/${req.files.front_image[0].filename}`;
-      const backImageUrl = `/uploads/${req.files.back_image[0].filename}`;
+      // Convert image buffers to Data URLs (base64) for Serverless DB storage
+      const frontMime = req.files.front_image[0].mimetype;
+      const frontBase64 = req.files.front_image[0].buffer.toString('base64');
+      const frontImageUrl = `data:${frontMime};base64,${frontBase64}`;
+
+      const backMime = req.files.back_image[0].mimetype;
+      const backBase64 = req.files.back_image[0].buffer.toString('base64');
+      const backImageUrl = `data:${backMime};base64,${backBase64}`;
 
       await pool.query(
         `INSERT INTO student_verifications (user_id, front_image_url, back_image_url)
