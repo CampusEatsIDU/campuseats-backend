@@ -8,7 +8,7 @@ module.exports = function authMiddleware(req, res, next) {
     }
 
     const token = header.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     req.user = decoded; // { id, role, iat, exp }
     next();

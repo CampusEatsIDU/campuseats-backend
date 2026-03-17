@@ -21,7 +21,7 @@ router.get("/list", async (req, res) => {
     const result = await pool.query(`
       SELECT u.id, u.full_name as name, p.* 
       FROM users u
-      JOIN restaurant_profiles p ON u.id = p.user_id
+      LEFT JOIN restaurant_profiles p ON u.id = p.user_id
       WHERE u.role = 'restaurant'
       ORDER BY p.is_open DESC, u.full_name ASC
     `);
@@ -298,11 +298,25 @@ router.put("/profile", upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'ba
       }
     }
 
+    let final_working_hours = profile.rows[0].working_hours;
+    if (working_hours !== undefined && working_hours !== '[object Object]') {
+      try {
+        if (typeof working_hours === 'string') {
+          JSON.parse(working_hours);
+          final_working_hours = working_hours;
+        } else {
+          final_working_hours = working_hours;
+        }
+      } catch (e) {
+        final_working_hours = JSON.stringify(working_hours);
+      }
+    }
+
     const result = await pool.query(
       `UPDATE restaurant_profiles SET 
                 description=$1, address=$2, phone=$3, min_order=$4, delivery_fee=$5, working_hours=$6, logo_url=$7, banner_url=$8, updated_at=CURRENT_TIMESTAMP
              WHERE user_id=$9 RETURNING *`,
-      [description, address, phone, min_order || 0, delivery_fee || 0, working_hours || profile.rows[0].working_hours, logo_url, banner_url, restId]
+      [description, address, phone, min_order || 0, delivery_fee || 0, final_working_hours, logo_url, banner_url, restId]
     );
     res.json(result.rows[0]);
   } catch (err) {
