@@ -15,9 +15,24 @@ try {
   console.error("Failed to start Courier Bot components:", e);
 }
 
+const HOST = '0.0.0.0';
+
 // Start the server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
+
+  // Test DB connection immediately
+  pool.query('SELECT NOW()', (err, res) => {
+    if (err) {
+      console.error('❌ Database connection failed at startup:', err.message);
+    } else {
+      console.log('✅ Database connected successfully');
+    }
+  });
+});
+
+server.on('error', (err) => {
+  console.error('❌ Server startup error:', err.message);
 });
 
 // Export for Vercel
