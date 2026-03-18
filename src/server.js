@@ -15,12 +15,10 @@ try {
   console.error("Failed to start Courier Bot components:", e);
 }
 
-// In development, handle app.listen manually
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 // Export for Vercel
 module.exports = app;
