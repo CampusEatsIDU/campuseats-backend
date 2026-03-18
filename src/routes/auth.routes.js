@@ -9,8 +9,11 @@ HELPER: Normalize phone
 function normalizePhone(phone) {
   if (!phone) return null;
   const cleaned = String(phone).replace(/\s+/g, "");
+
   if (/^\+998\d{9}$/.test(cleaned)) return cleaned;
   if (/^998\d{9}$/.test(cleaned)) return `+${cleaned}`;
+  // Auto prefix 9-digit Uzbek numbers
+  if (/^\d{9}$/.test(cleaned)) return `+998${cleaned}`;
 
   // Allow alphanumeric usernames for restaurant partners / admins
   if (cleaned.length >= 4 && !/^\d+$/.test(cleaned)) return cleaned;

@@ -1,2 +1,0 @@
-STATUS: 201
-BODY: {"message":"Verification submitted successfully."}
