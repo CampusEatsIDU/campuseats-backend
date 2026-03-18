@@ -15,11 +15,12 @@ try {
   console.error("Failed to start Courier Bot components:", e);
 }
 
-const HOST = '::';
+const HOST = process.env.IP || '::';
 
 // Start the server
 const server = app.listen(PORT, HOST, () => {
   console.log(`Server running on http://${HOST}:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV}`);
 
   // Test DB connection immediately
   pool.query('SELECT NOW()', (err, res) => {
