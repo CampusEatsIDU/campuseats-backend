@@ -6,7 +6,7 @@
 const router = require('express').Router();
 const courierService = require('../services/courier.service');
 const pool = require('../config/db');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 // ──────────────────────────────────────────────
