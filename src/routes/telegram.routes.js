@@ -77,10 +77,10 @@ router.post("/webhook", async (req, res) => {
         }
       );
     }
-   
+
     res.sendStatus(200);
   } catch (err) {
-    console.error("Telegram webhook error:", err.message);
+    console.error("Telegram webhook error:", err);
     res.sendStatus(200);
   }
 });
@@ -89,7 +89,7 @@ router.post("/webhook", async (req, res) => {
 router.post("/sync", async (req, res) => {
   try {
     const { telegram_id, username, first_name, last_name, language } = req.body;
-    
+
     await pool.query(
       `INSERT INTO users (telegram_id, username, first_name, last_name, language) 
        VALUES ($1, $2, $3, $4, $5) 
@@ -97,10 +97,10 @@ router.post("/sync", async (req, res) => {
        SET username = $2, first_name = $3, last_name = $4, language = $5`,
       [telegram_id, username, first_name, last_name, language]
     );
-    
+
     res.json({ success: true });
   } catch (err) {
-    console.error("Sync error:", err.message);
+    console.error("Sync error details:", err);
     res.status(500).json({ error: err.message });
   }
 });
