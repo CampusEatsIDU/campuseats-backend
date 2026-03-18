@@ -15,7 +15,7 @@ try {
   console.error("Failed to start Courier Bot components:", e);
 }
 
-const HOST = '0.0.0.0';
+const HOST = '::';
 
 // Start the server
 const server = app.listen(PORT, HOST, () => {
