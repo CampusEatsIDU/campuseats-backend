@@ -24,7 +24,7 @@ const server = app.listen(PORT, HOST, () => {
   // Test DB connection immediately
   pool.query('SELECT NOW()', (err, res) => {
     if (err) {
-      console.error('❌ Database connection failed at startup:', err.message);
+      console.error('❌ Database connection failed at startup:', err);
     } else {
       console.log('✅ Database connected successfully');
     }
