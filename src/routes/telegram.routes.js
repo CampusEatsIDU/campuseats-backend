@@ -94,7 +94,10 @@ router.post("/sync", async (req, res) => {
       `INSERT INTO users (telegram_id, username, first_name, last_name, language) 
        VALUES ($1, $2, $3, $4, $5) 
        ON CONFLICT (telegram_id) DO UPDATE 
-       SET username = $2, first_name = $3, last_name = $4, language = $5`,
+       SET username = EXCLUDED.username, 
+           first_name = EXCLUDED.first_name, 
+           last_name = EXCLUDED.last_name, 
+           language = EXCLUDED.language`,
       [telegram_id, username, first_name, last_name, language]
     );
 
