@@ -275,7 +275,7 @@ router.get("/profile", async (req, res) => {
 router.put("/profile", upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), async (req, res) => {
   try {
     const restId = req.user.id;
-    const { description, address, phone, min_order, delivery_fee, working_hours } = req.body;
+    const { description, address, phone, min_order, delivery_fee, working_hours, cashback_rate } = req.body;
 
     let profile = await pool.query("SELECT * FROM restaurant_profiles WHERE user_id = $1", [restId]);
     if (profile.rows.length === 0) {
@@ -313,10 +313,11 @@ router.put("/profile", upload.fields([{ name: 'logo', maxCount: 1 }, { name: 'ba
     }
 
     const result = await pool.query(
-      `UPDATE restaurant_profiles SET 
-                description=$1, address=$2, phone=$3, min_order=$4, delivery_fee=$5, working_hours=$6, logo_url=$7, banner_url=$8, updated_at=CURRENT_TIMESTAMP
-             WHERE user_id=$9 RETURNING *`,
-      [description, address, phone, min_order || 0, delivery_fee || 0, final_working_hours, logo_url, banner_url, restId]
+      `UPDATE restaurant_profiles SET
+                description=$1, address=$2, phone=$3, min_order=$4, delivery_fee=$5, working_hours=$6, logo_url=$7, banner_url=$8,
+                cashback_rate=COALESCE($9, cashback_rate), updated_at=CURRENT_TIMESTAMP
+             WHERE user_id=$10 RETURNING *`,
+      [description, address, phone, min_order || 0, delivery_fee || 0, final_working_hours, logo_url, banner_url, cashback_rate, restId]
     );
     res.json(result.rows[0]);
   } catch (err) {

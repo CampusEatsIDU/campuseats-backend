@@ -43,6 +43,7 @@ app.use("/api/telegram", require("./routes/telegram.routes"));
 app.use("/api/admin", require("./routes/admin.routes"));
 app.use("/api/restaurant", require("./routes/restaurant.routes"));
 app.use("/api/courier", require("./routes/courier.routes"));
+app.use("/api/wallet", require("./routes/wallet.routes"));
 
 // Inline bot webhook to avoid file loading issues on Vercel
 app.post("/bot-webhook", async (req, res) => {

@@ -2,24 +2,22 @@ const pool = require("../config/db");
 const jwt = require("jsonwebtoken");
 
 async function findOrCreateUser(telegramId, username) {
-  const [users] = await pool.query(
-    "SELECT * FROM users WHERE telegram_id = ?",
+  const result = await pool.query(
+    "SELECT * FROM users WHERE telegram_id = $1",
     [telegramId]
   );
 
-  if (users.length > 0) return users[0];
+  if (result.rows.length > 0) return result.rows[0];
 
-  const [result] = await pool.query(
-    "INSERT INTO users (telegram_id, username, role, is_verified) VALUES (?, ?, 'student', FALSE)",
-    [telegramId, username]
+  const insertResult = await pool.query(
+    `INSERT INTO users (telegram_id, full_name, role, status)
+     VALUES ($1, $2, 'user', 'active')
+     ON CONFLICT (telegram_id) DO UPDATE SET full_name = EXCLUDED.full_name
+     RETURNING *`,
+    [telegramId, username || 'Telegram User']
   );
 
-  const [newUser] = await pool.query(
-    "SELECT * FROM users WHERE id = ?",
-    [result.insertId]
-  );
-
-  return newUser[0];
+  return insertResult.rows[0];
 }
 
 function generateToken(user) {

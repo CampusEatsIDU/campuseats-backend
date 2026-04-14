@@ -74,6 +74,16 @@ router.get("/dashboard", async (req, res) => {
          newUsersToday = parseInt(todayResult.rows[0].total, 10);
       } catch (e) { }
 
+      // Cashback stats
+      let totalCashbackCredited = 0;
+      let activePromotions = 0;
+      try {
+         const cbResult = await pool.query("SELECT COALESCE(SUM(amount), 0) as total FROM cashback_transactions WHERE type = 'credit'");
+         totalCashbackCredited = parseFloat(cbResult.rows[0].total) || 0;
+         const promoResult = await pool.query("SELECT COUNT(*) as total FROM promotions WHERE is_active = true");
+         activePromotions = parseInt(promoResult.rows[0].total, 10);
+      } catch (e) { }
+
       res.json({
          totalUsers,
          totalRestaurants,
@@ -86,7 +96,9 @@ router.get("/dashboard", async (req, res) => {
          pendingVerifications,
          totalLogs,
          newUsersToday,
-         totalStudents
+         totalStudents,
+         totalCashbackCredited,
+         activePromotions
       });
    } catch (err) {
       console.error("Dashboard error:", err.message);
@@ -1247,6 +1259,109 @@ router.get('/courier-dashboard', async (req, res) => {
    } catch (err) {
       console.error('Courier dashboard error:', err.message);
       res.status(500).json({ message: 'Server error' });
+   }
+});
+
+// ═══════════════════════════════════════════
+// PROMOTIONS MANAGEMENT
+// ═══════════════════════════════════════════
+
+router.get("/promotions", async (req, res) => {
+   try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 20;
+      const offset = (page - 1) * limit;
+
+      const result = await pool.query(
+         "SELECT * FROM promotions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+         [limit, offset]
+      );
+      const countResult = await pool.query("SELECT COUNT(*) FROM promotions");
+
+      res.json({
+         promotions: result.rows,
+         total: parseInt(countResult.rows[0].count)
+      });
+   } catch (err) {
+      console.error("List promotions error:", err.message);
+      res.status(500).json({ message: "Server error" });
+   }
+});
+
+router.post("/promotions", async (req, res) => {
+   try {
+      const { code, description, discount_type, discount_value, min_order, max_uses, students_only, expires_at } = req.body;
+
+      if (!code || !discount_value) {
+         return res.status(400).json({ message: "Code and discount_value are required" });
+      }
+
+      const result = await pool.query(
+         `INSERT INTO promotions (code, description, discount_type, discount_value, min_order, max_uses, students_only, expires_at, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          RETURNING *`,
+         [code.toUpperCase(), description, discount_type || 'percentage', discount_value,
+          min_order || 0, max_uses, students_only || false, expires_at, req.user.id]
+      );
+
+      await AuditService.log(req.user.id, "PROMOTION_CREATED", { code: code.toUpperCase(), discount_type, discount_value });
+
+      res.status(201).json(result.rows[0]);
+   } catch (err) {
+      if (err.code === '23505') {
+         return res.status(400).json({ message: "Promo code already exists" });
+      }
+      console.error("Create promotion error:", err.message);
+      res.status(500).json({ message: "Server error" });
+   }
+});
+
+router.put("/promotions/:id", async (req, res) => {
+   try {
+      const { is_active, description, discount_value, min_order, max_uses, students_only, expires_at } = req.body;
+
+      const result = await pool.query(
+         `UPDATE promotions SET
+            is_active = COALESCE($1, is_active),
+            description = COALESCE($2, description),
+            discount_value = COALESCE($3, discount_value),
+            min_order = COALESCE($4, min_order),
+            max_uses = COALESCE($5, max_uses),
+            students_only = COALESCE($6, students_only),
+            expires_at = COALESCE($7, expires_at)
+          WHERE id = $8
+          RETURNING *`,
+         [is_active, description, discount_value, min_order, max_uses, students_only, expires_at, req.params.id]
+      );
+
+      if (result.rows.length === 0) {
+         return res.status(404).json({ message: "Promotion not found" });
+      }
+
+      res.json(result.rows[0]);
+   } catch (err) {
+      console.error("Update promotion error:", err.message);
+      res.status(500).json({ message: "Server error" });
+   }
+});
+
+router.delete("/promotions/:id", async (req, res) => {
+   try {
+      const result = await pool.query(
+         "UPDATE promotions SET is_active = false WHERE id = $1 RETURNING *",
+         [req.params.id]
+      );
+
+      if (result.rows.length === 0) {
+         return res.status(404).json({ message: "Promotion not found" });
+      }
+
+      await AuditService.log(req.user.id, "PROMOTION_DEACTIVATED", { promo_id: req.params.id });
+
+      res.json({ message: "Promotion deactivated", promotion: result.rows[0] });
+   } catch (err) {
+      console.error("Delete promotion error:", err.message);
+      res.status(500).json({ message: "Server error" });
    }
 });
 
