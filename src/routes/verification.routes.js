@@ -91,4 +91,50 @@ router.post(
   }
 );
 
+// GET /api/verification/status — current user's verification state
+router.get("/status", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const verifResult = await pool.query(
+      `SELECT id, status, rejection_reason, created_at, reviewed_at
+       FROM student_verifications
+       WHERE user_id = $1
+       ORDER BY id DESC LIMIT 1`,
+      [userId]
+    );
+
+    const userResult = await pool.query(
+      "SELECT is_student_verified, balance FROM users WHERE id = $1",
+      [userId]
+    );
+
+    const isVerified = userResult.rows[0]?.is_student_verified || false;
+    const balance = parseFloat(userResult.rows[0]?.balance) || 0;
+
+    if (verifResult.rows.length === 0) {
+      return res.json({
+        has_submission: false,
+        is_student_verified: isVerified,
+        balance,
+        status: null
+      });
+    }
+
+    const latest = verifResult.rows[0];
+    res.json({
+      has_submission: true,
+      is_student_verified: isVerified,
+      balance,
+      status: latest.status,
+      rejection_reason: latest.rejection_reason,
+      submitted_at: latest.created_at,
+      reviewed_at: latest.reviewed_at
+    });
+  } catch (err) {
+    console.error("Verification status error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 module.exports = router;
